@@ -36,7 +36,6 @@ import kotlinx.coroutines.plus
 import kotlin.reflect.KProperty
 import androidx.compose.runtime.State as ComposeState
 
-
 typealias OnDelegateEvent<DelegateEvent, Event, DelegateAction> = (
         ((DelegateEvent) -> Event) -> Unit,
         (() -> DelegateAction) -> Unit,
@@ -65,6 +64,10 @@ abstract class UdfBaseViewModel<Action : Any, UiState : Any, State : Any, Event 
 
     private val eventStreamWrapper by lazy { EventStreamWrapper<Event?>(vmName) }
 
+    private var lastAction: Action? = null
+
+    private var onReturnPredicate: (() -> Boolean)? = null
+
     val state by stateWrapper.getStream()
 
     @MainThread
@@ -75,8 +78,21 @@ abstract class UdfBaseViewModel<Action : Any, UiState : Any, State : Any, Event 
         )
     }
 
-    override fun onActions(vararg actions: Action) {
-        actions.forEach { action -> onAction(action) }
+    final override fun onActions(vararg actions: Action) {
+        val isPredicate = onReturnPredicate?.invoke()
+        when {
+            isPredicate == null -> actions.forEach { current -> onAction(current) }
+            isPredicate -> {
+                val list = lastAction?.let { last -> listOf(last) + actions } ?: actions.toList()
+                list.forEach(::onAction)
+                onReturnPredicate = null
+            }
+            !isPredicate -> {
+                actions.forEach { current -> onAction(current) }
+                onReturnPredicate = null
+            }
+        }
+        lastAction = actions.lastOrNull()
     }
 
     @MainThread
@@ -110,16 +126,12 @@ abstract class UdfBaseViewModel<Action : Any, UiState : Any, State : Any, Event 
     }
 
     @DslEvent
-    protected fun postOnReturnEvent(
-        event: @DslEvent Event,
-        predicate: () -> Boolean
-    ) {
-        eventStreamWrapper.postOnReturnEvent(event, predicate)
-    }
-
-    @DslEvent
     protected fun handleEvent() {
         eventStreamWrapper.handle()
+    }
+
+    protected fun doLastActionOnReturn(predicate: () -> Boolean) {
+        if (onReturnPredicate != predicate) onReturnPredicate = predicate
     }
 
     /**
@@ -137,15 +149,16 @@ abstract class UdfBaseViewModel<Action : Any, UiState : Any, State : Any, Event 
         context = (coroutineDispatcher ?: dispatchers.work),
     ) {
         if (onState == null && onEvent == null) cancel()
-        onState?.let { stateCallback ->
-            getDelegateState()
-                .filterNotNull()
-                .onEach(stateCallback::invoke)
-                .launchIn(
-                    catchBlock = { throwable -> onStateError?.invoke(throwable) ?: throwable.printStackTrace() },
-                    scope = this
-                )
-        }
+        if (onState != null || onEvent != null)
+            onState?.let { stateCallback ->
+                getDelegateState()
+                    .filterNotNull()
+                    .onEach(stateCallback::invoke)
+                    .launchIn(
+                        catchBlock = { throwable -> onStateError?.invoke(throwable) ?: throwable.printStackTrace() },
+                        scope = this
+                    )
+            }
         onEvent?.let { eventCallback ->
             getDelegateEvent()
                 .filterNotNull()

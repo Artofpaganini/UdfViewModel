@@ -154,9 +154,7 @@ fun SomeDifficultScreen(
 
             Button(
                 onClick = {
-                    viewModel.onActions(
-                        SomeAction.Internal.Cancel, SomeAction.Internal.Launch
-                    )
+                    viewModel.onActions(SomeAction.Internal.Cancel, SomeAction.Internal.Launch)
                 }) {
                 Text(text = "Click for RecallData")
             }
