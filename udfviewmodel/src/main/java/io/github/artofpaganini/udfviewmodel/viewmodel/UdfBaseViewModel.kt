@@ -7,6 +7,7 @@ import androidx.compose.runtime.NonRestartableComposable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import androidx.lifecycle.viewModelScope
+import io.github.artofpaganini.udfviewmodel.ActionLogger
 import io.github.artofpaganini.udfviewmodel.utils.launch
 import io.github.artofpaganini.udfviewmodel.utils.launchIn
 import io.github.artofpaganini.udfviewmodel.viewmodel.annotation.DslBaseViewModel
@@ -72,6 +73,7 @@ abstract class UdfBaseViewModel<Action : Any, UiState : Any, State : Any, Event 
 
     @MainThread
     override fun onAction(action: Action) {
+        ActionLogger.log(action::class.java.simpleName)
         vmName.logStage(
             methodName = "onAction",
             message = "Выполнить Action ${action::class.java.simpleName}"

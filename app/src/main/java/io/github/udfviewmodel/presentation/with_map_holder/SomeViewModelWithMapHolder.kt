@@ -45,7 +45,7 @@ class SomeViewModelWithMapHolder(
                 updateState { copy(isError = true) }
                 postEvent(ShowErrorToast("Error toast message"))
             }
-            SomeAction.Ui.DoAnr -> TODO()
+            SomeAction.Ui.DoAnr ->  Thread.sleep(10_000)
         }
     }
 

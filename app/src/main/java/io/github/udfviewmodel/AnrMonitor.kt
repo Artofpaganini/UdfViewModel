@@ -2,9 +2,10 @@ package io.github.udfviewmodel
 
 import android.content.Context
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.Choreographer
-import io.github.udfviewmodel.ui.UserActionLogger
+import io.github.artofpaganini.udfviewmodel.ActionLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -16,119 +17,94 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.atomics.AtomicLong
+import kotlin.concurrent.atomics.ExperimentalAtomicApi
 
+@OptIn(ExperimentalAtomicApi::class)
 class AnrMonitor(private val context: Context) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private var lastFrameTime = System.currentTimeMillis()
-    private var lastMessageTime = System.currentTimeMillis()
+    private val lastFrameTime = AtomicLong(SystemClock.uptimeMillis())
+    private val lastMessageTime = AtomicLong(SystemClock.uptimeMillis())
+    private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+    private val choreographer = Choreographer.getInstance()
+    private val choreographerCallback = object : Choreographer.FrameCallback {
+        override fun doFrame(frameTimeNanos: Long) {
+            lastFrameTime.store(TimeUnit.NANOSECONDS.toMillis(frameTimeNanos))
+            choreographer.postFrameCallback(this)
+        }
+    }
 
-    private val timeoutMs = 5000L
+    private var looper: Looper? = Looper.getMainLooper()
 
     fun start() {
-        startLooperLogging()
-        startCoroutineChecker()
-        startChoreographerChecker()
+        looper?.setMessageLogging { _ -> lastMessageTime.exchange(SystemClock.uptimeMillis()) }
+        choreographer.postFrameCallback(choreographerCallback)
+        startAnrMonitorCycle()
     }
 
     fun stop() {
+        choreographer.removeFrameCallback(choreographerCallback)
+        looper?.setMessageLogging(null)
+        looper = null
         scope.cancel()
     }
 
-    // === Вариант 1: Coroutines + Dispatchers.Main ===
-    private fun startCoroutineChecker() {
+    private fun startAnrMonitorCycle() {
         scope.launch {
             while (isActive) {
-                delay(timeoutMs)
-                if (System.currentTimeMillis() - lastMessageTime > timeoutMs) {
-                    logAnr("Looper/Coroutine Watchdog")
-                }
+                delay(TIME_OUT_MS)
+                Log.w("EWQ", "startAnrMonitorCycle: ${isLooperFreeze()} and ${isChoreographFreeze()}", )
+                if (isLooperFreeze() || isChoreographFreeze()) writeAnrTrace()
             }
         }
     }
 
-    // === Вариант 2: Choreographer ===
-    private fun startChoreographerChecker() {
-        val callback = object : Choreographer.FrameCallback {
-            override fun doFrame(frameTimeNanos: Long) {
-                lastFrameTime = System.currentTimeMillis()
-                Choreographer.getInstance().postFrameCallback(this)
-            }
-        }
-        Choreographer.getInstance().postFrameCallback(callback)
+    private fun writeAnrTrace() {
+        val file = File(context.filesDir, "anr_log.txt")
+        if (file.exists()) return
+        looper?.let { main ->
+            val stack = main.thread.stackTrace
 
-        scope.launch {
-            while (isActive) {
-                delay(timeoutMs)
-                if (System.currentTimeMillis() - lastFrameTime > timeoutMs) {
-                    logAnr("Choreographer")
+            val crashFrame = stack.find { frame -> frame.className.startsWith("io.github.udfviewmodel") }
+            val formatted = stack.joinToString("\n") { trace ->
+                val className = trace.className
+                val mark = when {
+                    className.contains("ExternalSyntheticLambda") -> "[synthetic]"
+                    className.contains("r8\$lambda") -> "[r8]"
+                    className.contains("ComposableSingletons") -> "[compose]"
+                    className.contains("AndroidComposeView") -> "[compose]"
+                    className.startsWith("androidx.compose.") -> "[compose]"
+                    className.startsWith("io.github.udfviewmodel") -> "[project]"
+                    className.startsWith("android.view.") -> "[android]"
+                    className.startsWith("android.") || className.startsWith("java.") -> "[system]"
+                    else -> "[external]"
                 }
+                "at ${className}.${trace.methodName} (${trace.fileName}:${trace.lineNumber}) $mark"
             }
-        }
-    }
 
-    // === Вариант 3: Looper.setMessageLogging ===
-    private fun startLooperLogging() {
-        Looper.getMainLooper().setMessageLogging { msg ->
-            if (msg.startsWith(">>>>>") || msg.startsWith("<<<<<")) {
-                lastMessageTime = System.currentTimeMillis()
-            }
-        }
+            val log = """
+                      === ANR DETECTED ===
+                      Время: ${dateFormat.format(Date())}
+                      Место падения: ${crashFrame?.fileName}:${crashFrame?.lineNumber}
+                      Действия пользователя до ANR: 
+                      ${ActionLogger.dump()}
+                      
+                      "Full stack:"
+                      $formatted
+                      ====================
+                  """.trimIndent()
 
-        scope.launch {
-            while (isActive) {
-                delay(timeoutMs)
-                if (System.currentTimeMillis() - lastMessageTime > timeoutMs) {
-                    logAnr("Looper.setMessageLogging")
-                }
-            }
-        }
-    }
-
-    // === Запись в файл с ограничением размера ===
-    private fun logAnr(source: String) {
-        val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
-        val stack = Looper.getMainLooper().thread.stackTrace
-
-        val crashFrame = stack.find { frame -> frame.className.startsWith("io.github.udfviewmodel") }
-
-        val formatted = stack.joinToString("\n") { e ->
-            val className = e.className
-            val mark = when {
-                className.contains("ExternalSyntheticLambda") -> "[synthetic]"
-                className.contains("r8\$lambda") -> "[r8]"
-                className.contains("ComposableSingletons") -> "[compose]"
-                className.contains("AndroidComposeView") -> "[compose]"
-                className.startsWith("androidx.compose.") -> "[compose]"
-                className.startsWith("android.view.") -> "[android]"
-                className.startsWith("android.") || className.startsWith("java.") -> "[system]"
-                else -> "unknown"
-            }
-            "at ${className}.${e.methodName} (${e.fileName}:${e.lineNumber}) $mark"
-        }
-
-        val log = """
-        === ANR DETECTED ===
-        Место падения: $source
-        Время: $timestamp
-        Действия пользователя до ANR:
-        ${UserActionLogger.dump()}
-        Обратить внимание на :
-        $crashFrame
-          
-        "Full stack:"
-        $formatted
-        ====================
-    """.trimIndent()
-
-        try {
-            val file = File(context.filesDir, "anr_log.txt")
-            if (file.exists()) {
-                file.delete()
-            }
             file.appendText(log + "\n\n")
-        } catch (e: Exception) {
-            Log.e("AnrMonitor", "Failed to write log", e)
         }
+    }
+
+    private fun isLooperFreeze(): Boolean = SystemClock.uptimeMillis() - lastMessageTime.load() > TIME_OUT_MS
+
+    private fun isChoreographFreeze(): Boolean = SystemClock.uptimeMillis() - lastFrameTime.load() > TIME_OUT_MS
+
+    private companion object {
+        const val TIME_OUT_MS = 4000L
     }
 }

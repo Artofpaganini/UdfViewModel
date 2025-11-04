@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -40,7 +39,6 @@ import io.github.udfviewmodel.presentation.model.SomeAction
 import io.github.udfviewmodel.presentation.model.SomeEvent
 import io.github.udfviewmodel.presentation.model.SomeUiState
 import io.github.udfviewmodel.presentation.model.UiModel
-import io.github.udfviewmodel.ui.UserActionLogger
 
 @Composable
 fun SomeDifficultScreen(
@@ -183,10 +181,7 @@ fun SomeDifficultScreen(
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(onClick = {
                         status = "Главный поток зависает..."
-                        // ⚠️ Специально блокируем главный поток на 10 секунд
-                        UserActionLogger.log("Clicked 'Сделать ANR' button")
-                        Thread.sleep(10_000)
-
+                        viewModel.onAction(SomeAction.Ui.DoAnr)
                         status = "Главный поток снова жив"
                     }) {
                         Text("Сделать ANR")
