@@ -6,6 +6,7 @@ import io.github.udfviewmodel.data.SomeDataRepositoryImpl
 import io.github.udfviewmodel.domain.SomeDataRepository
 import io.github.udfviewmodel.presentation.model.SomeAction
 import io.github.udfviewmodel.presentation.model.SomeEvent
+import io.github.udfviewmodel.presentation.model.SomeEvent.*
 import io.github.udfviewmodel.presentation.model.SomeState
 import io.github.udfviewmodel.presentation.model.SomeUiState
 import io.github.udfviewmodel.presentation.with_map_holder.mapper.SomeMapHolder
@@ -42,8 +43,9 @@ class SomeViewModelWithMapHolder(
             SomeAction.Internal.Cancel -> cancelStreams()
             SomeAction.Ui.CallErrorMessage -> {
                 updateState { copy(isError = true) }
-                postEvent(SomeEvent.ShowErrorToast("Error toast message"))
+                postEvent(ShowErrorToast("Error toast message"))
             }
+            SomeAction.Ui.DoAnr -> TODO()
         }
     }
 

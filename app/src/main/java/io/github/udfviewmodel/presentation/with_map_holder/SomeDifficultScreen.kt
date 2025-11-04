@@ -3,8 +3,11 @@ package io.github.udfviewmodel.presentation.with_map_holder
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -16,6 +19,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Alignment.Companion.Center
 import androidx.compose.ui.Modifier
@@ -34,6 +40,7 @@ import io.github.udfviewmodel.presentation.model.SomeAction
 import io.github.udfviewmodel.presentation.model.SomeEvent
 import io.github.udfviewmodel.presentation.model.SomeUiState
 import io.github.udfviewmodel.presentation.model.UiModel
+import io.github.udfviewmodel.ui.UserActionLogger
 
 @Composable
 fun SomeDifficultScreen(
@@ -164,6 +171,27 @@ fun SomeDifficultScreen(
                     viewModel.onAction(SomeAction.Ui.CallErrorMessage)
                 }) {
                 Text(text = "Click for Error")
+            }
+            var status by remember { mutableStateOf("Нажми кнопку для теста ANR") }
+
+            Box(
+                modifier = Modifier.height(300.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(text = status)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = {
+                        status = "Главный поток зависает..."
+                        // ⚠️ Специально блокируем главный поток на 10 секунд
+                        UserActionLogger.log("Clicked 'Сделать ANR' button")
+                        Thread.sleep(10_000)
+
+                        status = "Главный поток снова жив"
+                    }) {
+                        Text("Сделать ANR")
+                    }
+                }
             }
         }
 
